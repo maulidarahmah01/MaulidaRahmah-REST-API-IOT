@@ -1,0 +1,354 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Dashboard - REST API</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            color: #333;
+            padding: 30px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        h1 {
+            margin-bottom: 25px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .card, .panel {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px #00000010;
+        }
+
+        .label {
+            color: #777;
+            margin-bottom: 12px;
+        }
+
+        .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 15px;
+        }
+
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .panel {
+            margin-bottom: 25px;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        .btn-on {
+            background: #28a745;
+        }
+
+        .btn-off {
+            background: #dc3545;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background: #f8f9fa;
+        }
+
+        #log {
+            background: #1e1e1e;
+            color: #0f0;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 180px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+
+        #log .error {
+            color: #f66;
+        }
+
+        #log .info {
+            color: #6af;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <h1>IoT Dashboard — REST API</h1>
+
+    <div class="cards">
+        <div class="card">
+            <div class="label">Suhu</div>
+            <div class="value"><span id="suhu">--</span> °C</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Kelembaban</div>
+            <div class="value"><span id="kelembaban">--</span> %</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Status Sensor</div>
+            <div class="value">
+                <span class="status-badge status-offline" id="status-badge">
+                    OFFLINE
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Kontrol Perangkat</h2>
+        <div class="controls">
+            <button class="btn btn-on" onclick="kontrol('lamp','on')">
+                Nyalakan Lampu
+            </button>
+
+            <button class="btn btn-off" onclick="kontrol('lamp','off')">
+                Matikan Lampu
+            </button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>10 Data Sensor Terakhir</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Waktu</th>
+                    <th>Suhu (°C)</th>
+                    <th>Kelembaban (%)</th>
+                </tr>
+            </thead>
+
+            <tbody id="history-body">
+                <tr>
+                    <td colspan="3">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h2>Grafik Suhu dan Kelembapan Real-Time</h2>
+        <canvas id="sensorChart"></canvas>
+    </div>
+
+    <div class="panel">
+        <h2>Log Aktivitas</h2>
+        <div id="log"></div>
+    </div>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const chartLabels = [];
+const suhuData = [];
+const kelembabanData = [];
+
+const ctx = document.getElementById('sensorChart').getContext('2d');
+
+const sensorChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: chartLabels,
+        datasets: [
+            {
+                label: 'Suhu (°C)',
+                data: suhuData,
+                borderColor: 'red',
+                tension: 0.3
+            },
+            {
+                label: 'Kelembapan (%)',
+                data: kelembabanData,
+                borderColor: 'blue',
+                tension: 0.3
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        animation: false,
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        }
+    }
+});
+    const API_BASE = 'http://localhost:1880/api';
+    const API_KEY = 'RAVELLE123';
+
+    function log(message, type = 'info') {
+        const el = document.getElementById('log');
+        const time = new Date().toLocaleTimeString();
+
+        el.innerHTML +=
+            `<div class="${type}">[${time}] ${message}</div>`;
+
+        el.scrollTop = el.scrollHeight;
+    }
+
+            async function fetchSensor() {
+                try {
+                    const res = await fetch(`${API_BASE}/suhu?apiKey=${API_KEY}`);
+                    const json = await res.json();
+
+            if (json.status === 'success' && json.data.suhu !== null) {
+                document.getElementById('suhu').textContent =
+                    json.data.suhu;
+
+                document.getElementById('kelembaban').textContent =
+                    json.data.kelembaban;
+
+                    chartLabels.push(new Date().toLocaleTimeString());
+                        suhuData.push(json.data.suhu);
+                        kelembabanData.push(json.data.kelembaban);
+
+                        if (chartLabels.length > 20) {
+                            chartLabels.shift();
+                            suhuData.shift();
+                            kelembabanData.shift();
+                        }
+
+                        sensorChart.update();
+
+                const badge = document.getElementById('status-badge');
+                badge.textContent = 'ONLINE';
+                badge.className = 'status-badge status-online';
+            }
+
+        } catch (err) {
+            log(`Gagal fetch sensor: ${err.message}`, 'error');
+        }
+    }
+
+    async function fetchHistory() {
+        try {
+            const res = await fetch(`${API_BASE}/history`);
+            const json = await res.json();
+
+            const tbody = document.getElementById('history-body');
+
+            if (!json.data || json.data.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="3">Belum ada data</td></tr>';
+                return;
+            }
+
+            const rows = json.data.slice(-10).reverse().map(d => `
+                <tr>
+                    <td>${new Date(d.received).toLocaleTimeString()}</td>
+                    <td>${d.suhu}</td>
+                    <td>${d.kelembaban}</td>
+                </tr>
+            `).join('');
+
+            tbody.innerHTML = rows;
+
+        } catch (err) {
+            log(`Gagal fetch history: ${err.message}`, 'error');
+        }
+    }
+
+    async function kontrol(device, action) {
+        try {
+            const res = await fetch(`${API_BASE}/kontrol`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain'
+                },
+                body: JSON.stringify({ device, action })
+            });
+
+            const json = await res.json();
+
+            if (json.status === 'success') {
+                log(`Perintah terkirim: ${device} → ${action}`);
+            } else {
+                log(`Gagal: ${json.message}`, 'error');
+            }
+
+        } catch (err) {
+            log(`Error kontrol: ${err.message}`, 'error');
+        }
+    }
+
+    log('Dashboard dimulai, polling setiap 3 detik...');
+
+    fetchSensor();
+    fetchHistory();
+
+    setInterval(fetchSensor, 3000);
+    setInterval(fetchHistory, 5000);
+</script>
+</body>
+</html>
